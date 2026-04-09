@@ -270,6 +270,7 @@ def compute_grpo_outcome_advantage(
     response_mask: torch.Tensor,
     index: np.ndarray,
     epsilon: float = 1e-6,
+    mask_truncated_samples: bool = False,
     norm_adv_by_std_in_grpo: bool = True,
     config: Optional[AlgoConfig] = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
@@ -301,6 +302,8 @@ def compute_grpo_outcome_advantage(
         Returns: `(torch.Tensor)`
             shape is (bs, response_length)
     """
+    # mask_truncated_samples
+    response_length = token_level_rewards.shape[-1]
     scores = token_level_rewards.sum(dim=-1)
 
     id2score = defaultdict(list)
@@ -322,10 +325,23 @@ def compute_grpo_outcome_advantage(
             else:
                 raise ValueError(f"no score in prompt index: {idx}")
         for i in range(bsz):
-            if norm_adv_by_std_in_grpo:
-                scores[i] = (scores[i] - id2mean[index[i]]) / (id2std[index[i]] + epsilon)
+            # mask_truncated_samples
+            if mask_truncated_samples:
+                if scores[i].abs() < 1e-6 and response_mask[i].sum() == response_length:
+                    scores[i] = 0
+                    print(f"[mask_truncated_samples] hit: uid={index[i]},"
+                           f" score={scores[i].item()}, score_dtype={scores[i].dtype}, "
+                           f" response_mask_sum={response_mask[i].sum().item()}, response_dtype={response_mask[i].dtype})")
+                else:
+                    if norm_adv_by_std_in_grpo:
+                        scores[i] = (scores[i] - id2mean[index[i]]) / (id2std[index[i]] + epsilon)
+                    else:
+                        scores[i] = scores[i] - id2mean[index[i]]
             else:
-                scores[i] = scores[i] - id2mean[index[i]]
+                if norm_adv_by_std_in_grpo:
+                    scores[i] = (scores[i] - id2mean[index[i]]) / (id2std[index[i]] + epsilon)
+                else:
+                    scores[i] = scores[i] - id2mean[index[i]]
         scores = scores.unsqueeze(-1) * response_mask
 
     return scores, scores

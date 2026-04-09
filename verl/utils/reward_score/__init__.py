@@ -13,7 +13,11 @@
 # limitations under the License.
 # from . import gsm8k, math, prime_math, prime_code
 
+import logging
+
 from verl.utils.import_utils import deprecated
+
+logger = logging.getLogger(__name__)
 
 
 def default_compute_score(
@@ -41,6 +45,8 @@ def default_compute_score(
     Raises:
         NotImplementedError: If the reward function is not implemented for the given data source.
     """
+    mounted_oj_cfg = kwargs.get("mounted_oj_cfg") or {}
+
     if data_source == "openai/gsm8k":
         from . import gsm8k
 
@@ -71,20 +77,77 @@ def default_compute_score(
         from . import prime_math
 
         res = prime_math.compute_score(solution_str, ground_truth)
-    elif data_source in ["codecontests", "apps", "codeforces", "taco"]:
-        # Use the passed sandbox_fusion_url if available
+    elif data_source == "codecontests":
+        # iquest-cpp train: prefer mounted OJ.
+        mounted_oj_url = mounted_oj_cfg.get("url")
+        mounted_oj_data_dir = mounted_oj_cfg.get("data_dir")
+        if mounted_oj_url and mounted_oj_data_dir:
+            try:
+                from . import oj_mounted_sandbox_async
+
+                res = oj_mounted_sandbox_async.compute_score_sync(
+                    data_source=data_source,
+                    solution_str=solution_str,
+                    ground_truth=ground_truth,
+                    extra_info=extra_info,
+                    sandbox_url=mounted_oj_url,
+                    data_dir=mounted_oj_data_dir,
+                    include_details=mounted_oj_cfg.get("include_details", False),
+                    request_timeout_s=mounted_oj_cfg.get("request_timeout_s", 120),
+                    max_retries=mounted_oj_cfg.get("max_retries", 3),
+                    time_limit_multiplier=mounted_oj_cfg.get("time_limit_multiplier", 2.0),
+                    enable_msvc_i64_compat=mounted_oj_cfg.get("enable_msvc_i64_compat", True),
+                    compile_timeout=mounted_oj_cfg.get("compile_timeout", 30),
+                    run_timeout=mounted_oj_cfg.get("run_timeout", None),
+                    memory_limit_MB=mounted_oj_cfg.get("memory_limit_mb", None),
+                )
+            except Exception:
+                # Keep RL training alive on transient sandbox failures.
+                logger.exception("mounted_oj compute_score_sync failed, fallback score=0")
+                res = 0.0
+        elif sandbox_fusion_url:
+            from . import sandbox_fusion
+
+            res = sandbox_fusion.compute_score(
+                sandbox_fusion_url,
+                concurrent_semaphore,
+                memory_limit_mb,
+                solution_str,
+                ground_truth,
+                continuous=True,
+            )
+        else:
+            from . import prime_code
+
+            res = prime_code.compute_score(solution_str, ground_truth, continuous=True)
+    elif data_source == "lcb-v6-python":
+        # iquest val: use LCB python sandbox endpoint.
         if sandbox_fusion_url:
             from . import sandbox_fusion
 
-            # Pass the URL directly, ground_truth likely contains test cases here
+            res = sandbox_fusion.compute_score(
+                sandbox_fusion_url,
+                concurrent_semaphore,
+                memory_limit_mb,
+                solution_str,
+                ground_truth,
+                continuous=True,
+            )
+        else:
+            from . import prime_code
+
+            res = prime_code.compute_score(solution_str, ground_truth, continuous=True)
+    elif data_source in ["apps", "codeforces", "taco"]:
+        # Keep original behavior for other code datasets.
+        if sandbox_fusion_url:
+            from . import sandbox_fusion
+
             res = sandbox_fusion.compute_score(
                 sandbox_fusion_url, concurrent_semaphore, memory_limit_mb, solution_str, ground_truth, continuous=True
             )
         else:
-            # If no sandbox URL is provided, fall back to prime_code or raise error
             from . import prime_code
 
-            # Assuming prime_code doesn't need the URL
             res = prime_code.compute_score(solution_str, ground_truth, continuous=True)
     elif data_source in ["hiyouga/geometry3k"]:
         from . import geo3k

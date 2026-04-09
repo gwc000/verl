@@ -66,3 +66,26 @@ sandbox_fusion:
   max_concurrent: 64
   # Max memory limit for each sandbox process in MB
   memory_limit_mb: 1024
+
+# Mounted OJ configuration for codecontests/apps/codeforces/taco routing
+mounted_oj:
+  # Mounted OJ /run_oj_cases endpoint
+  url: null
+  # Local mounted OJ data dir
+  data_dir: null
+  # Request timeout for OJ API
+  request_timeout_s: 120
+  # Retry count for OJ API
+  max_retries: 3
+  # Compiler timeout seconds
+  compile_timeout: 30
+  # Runtime timeout seconds; null means use service default
+  run_timeout: null
+  # Time limit multiplier
+  time_limit_multiplier: 2.0
+  # Optional memory limit in MB
+  memory_limit_mb: null
+  # Compatibility flag for MSVC-specific i64 formats
+  enable_msvc_i64_compat: True
+  # Whether to return execution details
+  include_details: False

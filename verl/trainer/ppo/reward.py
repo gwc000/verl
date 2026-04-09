@@ -14,7 +14,7 @@
 from __future__ import annotations
 
 import inspect
-import multiprocessing
+import threading
 from functools import partial
 from typing import TYPE_CHECKING, Any, Optional, cast
 
@@ -129,18 +129,21 @@ def load_reward_manager(config: DictConfig, tokenizer: Any, **reward_kwargs: Any
         sandbox_config = config.reward.get("sandbox_fusion")
         sandbox_url = sandbox_config.get("url") if sandbox_config else None
         memory_limit_mb = sandbox_config.get("memory_limit_mb", 1024) if sandbox_config else 1024
+        mounted_oj_cfg = config.reward.get("mounted_oj")
+        mounted_oj_cfg = dict(mounted_oj_cfg) if mounted_oj_cfg else {}
         if sandbox_url:
-            sandbox_manager = multiprocessing.Manager()
-            # Create a semaphore to control concurrent access to the sandbox
-            _concurrent_semaphore = sandbox_manager.Semaphore(sandbox_config.get("max_concurrent", 64))
+            # Keep semaphore local to current process to avoid manager IPC stalls
+            # during long-running cluster jobs.
+            _concurrent_semaphore = threading.BoundedSemaphore(sandbox_config.get("max_concurrent", 64))
             final_compute_score = partial(
                 default_compute_score_,
                 sandbox_fusion_url=sandbox_url,
                 concurrent_semaphore=_concurrent_semaphore,
                 memory_limit_mb=memory_limit_mb,
+                mounted_oj_cfg=mounted_oj_cfg,
             )
         else:
-            final_compute_score = default_compute_score_
+            final_compute_score = partial(default_compute_score_, mounted_oj_cfg=mounted_oj_cfg)
 
     # Instantiate and return the reward manager with the specified parameters
     return reward_manager_cls(

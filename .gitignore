@@ -1,5 +1,7 @@
 **/*.pt
 **/checkpoints
+**/ray_check
+**/swanlog
 **/wget-log
 **/_build/
 **/*.ckpt
